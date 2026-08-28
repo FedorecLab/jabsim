@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jabsim"
-version = "0.1.0"
+version = "0.1.3"
 description = "Simple ODE simulation with JAX for biological systems"
 readme = "README.md"
 authors = [{name = "Kirill Sechkar", email = "useful.instructive@proton.me"}]
