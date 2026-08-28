@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jabsim"
+version = "0.1.0"
+description = "Simple ODE simulation with JAX for biological systems"
+readme = "README.md"
+authors = [{name = "Kirill Sechkar", email = "useful.instructive@proton.me"}]
+requires-python = ">=3.10"
+dependencies = [
+    "jax>=0.4",
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["jabsim"]
+package-dir = {jabsim = "."}
