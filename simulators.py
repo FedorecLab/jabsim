@@ -3,6 +3,7 @@
 # PACKAGE IMPORTS
 # import configured jax
 import jax
+jax.config.update("jax_enable_x64", True)
 # import everything else
 import numpy as np
 import scipy.integrate
