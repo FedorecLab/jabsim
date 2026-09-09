@@ -22,7 +22,7 @@ This means that jabsim simulations can be jit-compiled and parallelised on a GPU
    - `par`: a list, array or dict of model parameters as in your ODE function
    - `model_ode`: the ODE function you created
    - `x0`: the initial state vector as a 1D `np.array` or `jnp.array`
-   - `tf`: tuple, array or list. The ODE will be simulated 
+   - `tf`: **tuple** only. The ODE will be simulated for time points between `tf[0]` and `tf[1]` (inclusive).
    - `savetimestep`: interval between the time points at which the trajectory is saved
    - `simulator`: string specifyingthe simulation method to use
         - `"euler"`: Euler simulator.
