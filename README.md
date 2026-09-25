@@ -19,18 +19,23 @@ This means that jabsim simulations can be jit-compiled and parallelised on a GPU
      - If you normally use `numpy` functions in your ODE, import `jax.numpy` as `jnp` and use it instead of `np`. jax with `jax.numpy` will get automatically installed as a dependency of jabsim when you install it.
      - Be careful using loops and if-statements. If you're an amateur programmer, just avoid doing all that. Otherwise, have a look at the [JAX documentation](https://docs.jax.dev/en/latest/index.html) .
 2. Import `jabsim` and call `jabsim.sim` to simulate. The arguments are as follows:
-   - `par`: a list, array or dict of model parameters as in your ODE function
-   - `model_ode`: the ODE function you created
-   - `x0`: the initial state vector as a 1D `np.array` or `jnp.array`
-   - `tf`: **tuple** only. The ODE will be simulated for time points between `tf[0]` and `tf[1]` (inclusive).
-   - `savetimestep`: interval between the time points at which the trajectory is saved
-   - `simulator`: string specifyingthe simulation method to use
-        - `"euler"`: Euler simulator.
-        - `"rk4"`: Runge-Kutta 4th order simulator. Slower per ODE integration step but more accurate, hence allowing larger steps for the same accuracy.
-   - `ode_steps_in_savetimestep`: number of ODE integration steps within one timestep
-        - e.g. if `savetimestep=0.5` hours and `ode_step_in_savetimesteps=100`, there will be 100 integration steps per 0.5 hour, so the ODE integration step size will be 0.5/100=0.05 hours.
-        - high `ode_steps_in_savetimestep` number increases accuracy but increases runtimes
-   - `return_numpy`: if `True` (by default, it is) the output will be in the `np.array` format, otherwise it will be `jnp.array`.
+   - Required arguments:
+      - `par`: a list, array or dict of model parameters as in your ODE function
+      - `model_ode`: the ODE function you created
+      - `x0`: the initial state vector as a 1D `np.array` or `jnp.array`
+      - `tf`: **tuple** only. The ODE will be simulated for time points between `tf[0]` and `tf[1]` (inclusive).
+      - `savetimestep`: interval between the time points at which the trajectory is saved
+      - `simulator`: string specifyingthe simulation method to use
+           - `"euler"`: Euler simulator.
+           - `"rk4"`: Runge-Kutta 4th order simulator. Slower per ODE integration step but more accurate, hence allowing larger steps for the same accuracy.
+      - `ode_steps_in_savetimestep`: number of ODE integration steps within one timestep
+           - e.g. if `savetimestep=0.5` hours and `ode_step_in_savetimesteps=100`, there will be 100 integration steps per 0.5 hour, so the ODE integration step size will be 0.5/100=0.05 hours.
+           - high `ode_steps_in_savetimestep` number increases accuracy but increases runtimes
+   - Optional arguments:
+     - `return_numpy` (optional): if `True` (by default, it is) the output will be in the `np.array` format, otherwise it will be `jnp.array`.
+     - `extinction_thresholds` (optional): a 1D `np.array` or `jnp.array` of the same shape as your state vector.
+     Some positive number for any state which can go extinct, -1 for any states which cannot go extinct. 
+     If state falls below its threshold, it stays at 0 forever. By default, no species can go extinct.
 3. Running `jabsim.sim()` will return the arrays `ts` and `xs` as `np.array` or `jnp.array`, as well as a boolean value `success`.
    - `ts`: array of timepoints between `tf[0]` and `tf[1]` with `savetimestep` hours, seconds or whatever units you are using between each two consecutive point
    - `xs`: system trajectory saved as an array at the time points in `ts` - axis 0 for time, axis 1 for entries in the state vector (i.e. `xs.shape[0]=len(ts)`).
@@ -43,6 +48,10 @@ This means that jabsim simulations can be jit-compiled and parallelised on a GPU
   - `tols`: dictionary of relative and absolute tolerances for the scipy solver. By default, `tols={'rtol': 1e-6, 'atol': 1e-9}`.
   - `dt0`: starting integration step size. By default, `dt0=0.1`.
 - If you want to make use of jax parallelisation, make sure to set `return_numpy=False` so that the solver would operate with `jnp.array` objects only.
+- *On Linux only*, jabsim's use of JAX for efficient parallelised computing
+may conflict with the `pyABC` package's multicore sampling. To fix this, do the following:
+  - When importing packages, add: `import multiprocessing as mp; mp.set_start_method('spawn')`.
+  - When initialising the sampler, set `pickle=True`, e.g. `sampler = pyabc.sampler.MulticoreSampler(n_procs=4, pickle=True)`.
 
 ## Example
 

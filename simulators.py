@@ -19,7 +19,8 @@ def loopy_euler(model_ode,
                 sim_state_record,
                 ode_step,
                 ode_steps_in_savetimestep,
-                args):
+                args,
+                extinction_thresholds):
     """
         Use Euler integration to get the simulator state to be recorded at the current saving point into
         sim_state_record - to be used with jax.lax.fori_loop
@@ -31,6 +32,7 @@ def loopy_euler(model_ode,
             ode_step: simulation time step duration
             ode_steps_in_savetimestep: number of ODE integration steps between each recording
             args: additional arguments to pass to the ODE function
+            extinction_thresholds: thresholds below which a species is assumed extinct and set to zero
 
         Returns:
             new_sim_state_record: record of simulation time points and state vector values - now with the right x at xs[save_cntr,:]
@@ -38,17 +40,23 @@ def loopy_euler(model_ode,
 
     # EULER STEP FUNCTION (with non-negativity constraints)
     def euler_step(step_cntr, t_x):
+        # find the next x
+        x = jnp.maximum(t_x['x'] + ode_step * model_ode(t_x['t'], t_x['x'], args), 0)
+        # check for extinction and set to zero if below threshold
+        x_ext = jnp.where(x < extinction_thresholds, 0, x)
         return {
             # entries updated over the course of the Euler step
             't': t_x['t'] + ode_step,
-            'x': jnp.maximum(t_x['x'] + ode_step * model_ode(t_x['t'], t_x['x'], args),0),
+            'x': x_ext,
         }
     # GET THE PRESENT TIME POINT AND STATE
     last_t_x = {'t': sim_state_record['ts'][save_cntr-1], 'x': sim_state_record['xs'][save_cntr-1, :]}
     this_t_x = jax.lax.fori_loop(0, ode_steps_in_savetimestep, euler_step, last_t_x)
+    ## unpack x, checking species for extinction and setting to zero if below threshold
+    this_x = jnp.where(this_t_x['x'] < extinction_thresholds, 0, this_t_x['x'])
 
     # RETURN UPDATED SIMULATOR STATE
-    new_sim_state_record = {'ts': sim_state_record['ts'], 'xs': sim_state_record['xs'].at[save_cntr, :].set(this_t_x['x'])}
+    new_sim_state_record = {'ts': sim_state_record['ts'], 'xs': sim_state_record['xs'].at[save_cntr, :].set(this_x)}
     return new_sim_state_record
 
 # Fourth-order Runge-Kutta solver using jax.lax.fori_loop
@@ -57,7 +65,8 @@ def loopy_rk4(model_ode,
               sim_state_record,
               ode_step,
               ode_steps_in_savetimestep,
-              args):
+              args,
+              extinction_thresholds):
     """
         Use fourth-order Runge-Kutta integration to get the simulator state to be recorded at the current saving point
         into sim_state_record - to be used with jax.lax.fori_loop
@@ -69,6 +78,7 @@ def loopy_rk4(model_ode,
             ode_step: simulation time step duration
             ode_steps_in_savetimestep: number of ODE integration steps between each recording
             args: additional arguments to pass to the ODE function
+            extinction_thresholds: thresholds below which a species is assumed extinct and set to zero
 
         Returns:
             new_sim_state_record: record of simulation time points and state vector values - now with the right x at xs[save_cntr,:]
@@ -76,14 +86,19 @@ def loopy_rk4(model_ode,
 
     # FOURTH-ORDER RUNGE-KUTTA STEP FUNCTION (with non-negativity constraints)
     def rk4_step(step_cntr, t_x):
+        # compute the four slopes
         k1 = model_ode(t_x['t'], t_x['x'], args)
         k2 = model_ode(t_x['t'] + ode_step / 2, jnp.maximum(t_x['x'] + ode_step * k1 / 2, 0), args)
         k3 = model_ode(t_x['t'] + ode_step / 2, jnp.maximum(t_x['x'] + ode_step * k2 / 2, 0), args)
         k4 = model_ode(t_x['t'] + ode_step, jnp.maximum(t_x['x'] + ode_step * k3, 0), args)
+        # find the next x
+        x = jnp.maximum(t_x['x'] + ode_step * (k1 + 2 * k2 + 2 * k3 + k4) / 6, 0)
+        # check for extinction and set to zero if below threshold
+        x_ext = jnp.where(x < extinction_thresholds, 0, x)
         return {
             # entries updated over the course of the Runge-Kutta step
             't': t_x['t'] + ode_step,
-            'x': jnp.maximum(t_x['x'] + ode_step * (k1 + 2 * k2 + 2 * k3 + k4) / 6, 0),
+            'x': x_ext,
         }
 
     # GET THE PRESENT TIME POINT AND STATE
@@ -121,8 +136,13 @@ def sim(model_ode, args, x0, tf, savetimestep, simulator='rk4', return_numpy=Tru
         # determine number of ode steps in savetimestep
         ode_steps_in_savetimestep = kwargs.get('ode_steps_in_savetimestep', 1e4)
 
+        # define extinction thresholds for the simulation
+        extinction_thresholds = kwargs.get('extinction_thresholds', -jnp.ones_like(x0)) # -1 by default => never trigggered due to non-negativity enforcement
+
         # call the jitted simulation function
-        ts, xs, success = sim_to_jit(model_ode, args, x0, tf, savetimestep, ode_steps_in_savetimestep, simulator)
+        ts, xs, success = sim_to_jit(model_ode, args, x0,
+                                     tf, savetimestep, ode_steps_in_savetimestep,
+                                     simulator, jnp.array(extinction_thresholds))
 
         # return numpy or jax.numpy arrays
         if(return_numpy):
@@ -166,15 +186,15 @@ def sim(model_ode, args, x0, tf, savetimestep, simulator='rk4', return_numpy=Tru
 
 # sub-function to be jax.jitted for jax-enabled simulations
 @functools.partial(
-      jax.jit,
-      static_argnames=(
-          "model_ode",
-          "tf",
-          "savetimestep",
-          "simulator",
-          "ode_steps_in_savetimestep"
-      ))
-def sim_to_jit(model_ode, args, x0, tf, savetimestep, ode_steps_in_savetimestep, simulator):
+    jax.jit,
+    static_argnames=(
+            "model_ode",
+            "tf",
+            "savetimestep",
+            "simulator",
+            "ode_steps_in_savetimestep",
+    ))
+def sim_to_jit(model_ode, args, x0, tf, savetimestep, ode_steps_in_savetimestep, simulator, extinction_thresholds):
     """
         Simulate an ODE model.
 
@@ -186,6 +206,7 @@ def sim_to_jit(model_ode, args, x0, tf, savetimestep, ode_steps_in_savetimestep,
             savetimestep: saving the siulation every savetimestep hours
             ode_steps_in_savetimestep
             simulator: simulation method
+
 
         Returns:
             xs: system state at each time point specfied
@@ -206,7 +227,8 @@ def sim_to_jit(model_ode, args, x0, tf, savetimestep, ode_steps_in_savetimestep,
                                                                     sim_state_record,  # simulator state
                                                                     ode_step,  # simulation time step
                                                                     int(ode_steps_in_savetimestep), # number of ODE integration steps between each recording
-                                                                    args)
+                                                                    args,
+                                                                    extinction_thresholds)
 
         # initalise the simulator state: (t, x) - x initialised with initial conditions
         sim_state_record = {'ts': ts,
@@ -235,7 +257,8 @@ def sim_to_jit(model_ode, args, x0, tf, savetimestep, ode_steps_in_savetimestep,
                                                                   sim_state_record,  # simulator state
                                                                   ode_step,  # simulation time step
                                                                   int(ode_steps_in_savetimestep), # number of ODE integration steps between each recording
-                                                                  args)
+                                                                  args,
+                                                                  extinction_thresholds)
 
         # initalise the simulator state: (t, x) - x initialised with initial conditions
         sim_state_record = {'ts': ts,
